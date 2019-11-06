@@ -6,10 +6,15 @@
  */
 #include<linux/module.h> /* Thu vien nay dinh nghia cac macro nhu module_init(), module_exit()*/
 #include<linux/init.h> 
+#include<linux/fs.h>
 
 #define DRIVER_AUTHOR "Bui Viet Anh"
 #define DRIVER_VERSION "1.0"
 #define DRIVER_DESC "The simple character device"
+
+struct _vchar_drv {
+    dev_t dev_num;
+}vchar_drv;
 
 /*************************************Device Specific - START***************************************/
 
@@ -35,14 +40,25 @@
 
 static int __init vchar_driver_init(void)
 {
+    int ret = 0;
     /*Cap phat device number*/
+    vchar_drv.dev_num = MKDEV(235,0);
+    ret = register_chrdev_region(vchar_drv.dev_num, 1, "vchar_device");
+    if(ret < 0)
+    {
+        printk(KERN_ERR "Failed to register device number statically\n");
+        goto failed_register_devnum;
+    }
+
     /*Tao device file*/
     /*Cap phat bo nho cho cac cau truc du lieu cua driver va khoi tao*/
     /*Khoi tao thiet bi vat ly*/
     /*Dang ky cac entry point voi kernel*/
     /*Dang ky ham xu ly ngat*/
-    printk(KERN_INFO "Initialize vchar driver successfully!");
+    printk(KERN_INFO "Initialize vchar driver successfully!\n");
     return 0;
+failed_register_devnum:
+    return ret;
 }
 static void __exit vchar_driver_exit(void)
 {
@@ -52,8 +68,9 @@ static void __exit vchar_driver_exit(void)
     /*Giai phong bo nho da cap phat cho cac cau truc cua driver*/
     /*Xoa bo device file*/
     /*Xoa bo device number*/
+    unregister_chrdev_region(vchar_drv.dev_num, 1);
 
-    printk(KERN_INFO "Exit vchar driver");
+    printk(KERN_INFO "Exit vchar driver\n");
 }
 
 module_init(vchar_driver_init);
