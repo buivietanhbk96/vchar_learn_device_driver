@@ -41,9 +41,11 @@ struct _vchar_drv {
 static int __init vchar_driver_init(void)
 {
     int ret = 0;
+
     /*Cap phat device number*/
-    vchar_drv.dev_num = MKDEV(235,0);
-    ret = register_chrdev_region(vchar_drv.dev_num, 1, "vchar_device");
+    vchar_drv.dev_num = 0;
+
+    ret = alloc_chrdev_region(&vchar_drv.dev_num, 0, 1, "vchar_device");
     if(ret < 0)
     {
         printk(KERN_ERR "Failed to register device number statically\n");
@@ -55,7 +57,7 @@ static int __init vchar_driver_init(void)
     /*Khoi tao thiet bi vat ly*/
     /*Dang ky cac entry point voi kernel*/
     /*Dang ky ham xu ly ngat*/
-    printk(KERN_INFO "Initialize vchar driver successfully!\n");
+    printk(KERN_INFO "Initialize vchar driver successfully!\nAllocate device number(%d, %d)\n", MAJOR(vchar_drv.dev_num), MINOR(vchar_drv.dev_num));
     return 0;
 failed_register_devnum:
     return ret;
