@@ -8,7 +8,8 @@
 #include<linux/fs.h> /*chua cac ham cap phat/giai phong device number*/
 #include<linux/device.h> /*cac ham phuc vu viec tao device file*/
 #include<linux/slab.h> /* chua cac ham kmalloc va kfree*/
-#include<linux/cdev.h>
+#include<linux/cdev.h> /*chua cac ham lam viec voi cdev*/
+#include<linux/uaccess.h> /*chua cac ham trao doi du lieu giua user vs kernel*/
 #include"vchar_driver.h" /*thu vien mo ta cac thanh ghi cua thiet bi*/
 
 #define DRIVER_AUTHOR "Bui Viet Anh"
@@ -55,7 +56,68 @@ void vchar_hw_exit(vchar_dev_t *hw)
     kfree(hw->control_regs);
 }
 /*Ham doc tu cac thanh ghi du lieu cua thiet bi*/
+int vchar_hw_read_data(vchar_dev_t *hw, int start_reg, int num_regs, char *kbuf)
+{
+    int read_bytes = num_regs;
+    /* Kiem tra xem co quyen READ khong*/
+    if((hw->control_regs[CONTROL_ACCESS_REG] & CTRL_READ_DATA_BIT) == DISABLE)
+    {
+        return -1;
+    }
+
+    /*Kiem tra xem dia chi cua kernel buff co hop le khong*/
+    if(NULL == kbuf)
+    {
+        return -1;
+    }
+    /*Kiem tra xe vi tri cua cac thanh ghi can doc co hop ly khong*/
+    if(start_reg >  NUM_DATA_REGS)
+    {
+        return -1;
+    }
+    /*Dieu chinh lai so luong thanh ghi du lieu can doc (neu can thiet)*/
+    if(num_regs > (NUM_DATA_REGS - start_reg))
+    {
+        read_bytes = NUM_DATA_REGS - start_reg;
+    }
+    /*ghi du lieu tu kernel buffer vao cac thanh ghi du lieu*/
+    memcpy(kbuf, hw->data_regs + start_reg, read_bytes);
+
+    /*cap nhat so lan doc tu cac thanh ghi du lieu*/
+    hw->status_regs[READ_COUNT_L_REG] += 1;
+    if(0 == hw->status_regs[READ_COUNT_L_REG])
+    {
+        hw->status_regs[READ_COUNT_H_REG] += 1;
+    }
+
+    return read_bytes;
+
+}
 /*Ham ghi vao cac thanh ghi du lieu cua thiet bi*/
+int vchar_hw_write_data(vchar_dev_t *hw, int start_reg, int num_regs, char *kbuf)
+{
+    int write_bytes = num_regs;
+    /*Kiem tra xem co quyen ghi du lieu khong*/
+    if((hw->control_regs[CONTROL_ACCESS_REG] & CTRL_WRITE_DATA_BIT) == DISABLE )
+        return -1;
+    /*kiem tra xem dia chi cua kernel buffer co hop le khong*/
+    if(NULL == kbuf)
+        return -1;
+    /*Kiem tra xem vi tri cua cac thanh ghi co hop le khong */
+    if(start_reg > NUM_DATA_REGS)
+        return -1;
+    /*Dieu chinh lai so luong thanh ghi du lieu can ghi (neu can thiet)*/
+    if(num_regs > (NUM_DATA_REGS - start_reg))
+    {
+        write_bytes = NUM_DATA_REGS - start_reg;
+        hw->status_regs[DEVICE_STATUS_REG] |= STS_DATAREGS_OVERFLOW_BIT;
+    }
+    /*Ghi du lieu vao cac thanh ghi tu kbuf*/
+    memcpy(hw->data_regs + start_reg, kbuf, write_bytes);
+    /*cap nhat so len ghi vao cac thanh ghi du lieu*/
+    hw->status_regs[WRITE_COUNT_L_REG] += 1;
+    return write_bytes;
+}
 /*Ham doc tu cac thanh ghi trang thai cua thiet bi*/
 /*Ham ghi vao cac thanh ghi trang thai cua thiet bi*/
 /*Ham xu ly tin hieu ngat tu thiet bi*/
@@ -79,11 +141,60 @@ static int vchar_driver_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+static ssize_t vchar_driver_read(struct file *filp, char __user *user_buf, size_t len, loff_t *off)
+{
+    char *kernel_buf = NULL;
+    int num_bytes = 0;
+    printk("Handle read event start from %lld, %zu bytes\n", *off, len);
+    kernel_buf = kzalloc(len, GFP_KERNEL);
+    if(NULL == kernel_buf)
+    {
+        return 0;
+    }
+    /*Call device specific function*/
+    num_bytes = vchar_hw_read_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
+    printk(KERN_INFO "read %d bytes from HW\n", num_bytes);
+
+    if(num_bytes < 0)
+    {
+        return -EFAULT;
+    }
+    if(copy_to_user(user_buf, kernel_buf, num_bytes))
+    {
+        return -EFAULT;
+    }
+    *off+= num_bytes;
+    return num_bytes;
+}
+
+static ssize_t vchar_driver_write(struct file *filp, const char __user *user_buf, size_t len, loff_t *off)
+{
+    char *kernel_buf = NULL;
+    int num_bytes = 0;
+    printk(KERN_INFO "Handle write event from %lld, %zu bytes\n", *off, len);
+
+    kernel_buf = kzalloc(len, GFP_KERNEL);
+    if(copy_from_user(kernel_buf, user_buf, len))
+    {
+        return -EFAULT;
+    }
+    num_bytes = vchar_hw_write_data(vchar_drv.vchar_hw, *off, len, kernel_buf);
+    printk("Write %d bytes to HW\n", num_bytes);
+    if(num_bytes < 0)
+    {
+        return -EFAULT;
+    }
+    *off += num_bytes;
+    return num_bytes;
+}
+
 static struct file_operations fops =
 {
     .owner = THIS_MODULE,
     .open = vchar_driver_open,
     .release = vchar_driver_release,
+    .read = vchar_driver_read,
+    .write = vchar_driver_write,
 };
 /************************************OS Specific - END********************************************/
 
