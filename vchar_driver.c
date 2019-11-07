@@ -7,6 +7,7 @@
 #include<linux/module.h> /* Thu vien nay dinh nghia cac macro nhu module_init(), module_exit()*/
 #include<linux/init.h> 
 #include<linux/fs.h>
+#include<linux/device.h>
 
 #define DRIVER_AUTHOR "Bui Viet Anh"
 #define DRIVER_VERSION "1.0"
@@ -14,11 +15,13 @@
 
 struct _vchar_drv {
     dev_t dev_num;
+    struct class *dev_class;
+    struct device *dev;
 }vchar_drv;
 
 /*************************************Device Specific - START***************************************/
 
-/*Ham khoi tao thiet bi*/
+/*Ham khoi tao thiet bi */
 /*Ham giai phong thiet bi*/
 /*Ham doc tu cac thanh ghi du lieu cua thiet bi*/
 /*Ham ghi vao cac thanh ghi du lieu cua thiet bi*/
@@ -51,14 +54,29 @@ static int __init vchar_driver_init(void)
         printk(KERN_ERR "Failed to register device number statically\n");
         goto failed_register_devnum;
     }
-
     /*Tao device file*/
+    vchar_drv.dev_class = class_create(THIS_MODULE, "class_vchar_dev");
+    if(NULL == vchar_drv.dev_class)
+    {
+        printk("Failed to create a device class\n");
+        goto failed_create_class;
+    }
+    vchar_drv.dev = device_create(vchar_drv.dev_class, NULL, vchar_drv.dev_num, NULL, "vchar_dev");
+    if(IS_ERR(vchar_drv.dev))
+    {
+        printk("Failed to create a device\n");
+        goto failed_create_device;
+    }
     /*Cap phat bo nho cho cac cau truc du lieu cua driver va khoi tao*/
     /*Khoi tao thiet bi vat ly*/
     /*Dang ky cac entry point voi kernel*/
     /*Dang ky ham xu ly ngat*/
     printk(KERN_INFO "Initialize vchar driver successfully!\nAllocate device number(%d, %d)\n", MAJOR(vchar_drv.dev_num), MINOR(vchar_drv.dev_num));
     return 0;
+failed_create_device:
+    class_destroy(vchar_drv.dev_class);
+failed_create_class:
+    unregister_chrdev_region(vchar_drv.dev_num,1);
 failed_register_devnum:
     return ret;
 }
@@ -69,6 +87,8 @@ static void __exit vchar_driver_exit(void)
     /*Giai phong thiet bi vat ly*/
     /*Giai phong bo nho da cap phat cho cac cau truc cua driver*/
     /*Xoa bo device file*/
+    device_destroy(vchar_drv.dev_class, vchar_drv.dev_num);
+    class_destroy(vchar_drv.dev_class);
     /*Xoa bo device number*/
     unregister_chrdev_region(vchar_drv.dev_num, 1);
 
