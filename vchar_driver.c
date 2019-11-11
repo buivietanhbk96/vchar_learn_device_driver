@@ -21,7 +21,7 @@
 #define VCHAR_CLR_DATA_REGS _IO(MAGICAL_NUMBER, 0)
 #define VCHAR_GET_STS_REGS  _IOR(MAGICAL_NUMBER, 1, sts_regs_t *)
 #define VCHAR_SET_RD_DATA_REGS _IOW(MAGICAL_NUMBER, 2, unsigned char *)
-#define VCHAR_SET_WR_DATA_REGS _IOW(MAGICAL_NUMBEr, 3, unsigned char *)
+#define VCHAR_SET_WR_DATA_REGS _IOW(MAGICAL_NUMBER, 3, unsigned char *)
 
 typedef struct {
     unsigned char read_count_h_reg;
@@ -172,12 +172,12 @@ void vchar_hw_enable_write(vchar_dev_t *hw, unsigned char isEnable)
     if(isEnable == ENABLE)
     {
         hw->control_regs[CONTROL_ACCESS_REG] |= CTRL_WRITE_DATA_BIT;
-        hw->status_regs[DEVICE_STATUS_REG] |= STS_WRITE_DATA_BIT;
+        hw->status_regs[DEVICE_STATUS_REG] |= STS_WRITE_ACCESS_BIT;
     }
     else 
     {
         hw->control_regs[CONTROL_ACCESS_REG] &= ~CTRL_WRITE_DATA_BIT;
-        hw->status_regs[DEVICE_STATUS_REG] &= ~STS_WRITE_DATA_BIT;
+        hw->status_regs[DEVICE_STATUS_REG] &= ~STS_WRITE_ACCESS_BIT;
     }
 }
 /*Ham ghi vao cac thanh ghi dieu khien cua thiet bi*/
@@ -229,7 +229,50 @@ static ssize_t vchar_driver_read(struct file *filp, char __user *user_buf, size_
 }
 static long vchar_driver_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+    int ret = 0;
+    printk("Handle ioctl event (cmd: %u)\n",cmd);
 
+    switch(cmd)
+    {
+        case VCHAR_CLR_DATA_REGS:
+        {
+            ret = vchar_hw_clear_data(vchar_drv.vchar_hw);
+            if(ret < 0)
+            {
+                printk(KERN_ALERT "Cannot clear data register\n");
+            }
+            else 
+            {
+                printk(KERN_INFO "Data registers has been cleared\n");
+            }
+            break;
+        }
+        case VCHAR_SET_RD_DATA_REGS:
+        {
+            unsigned char isReadEnable;
+            copy_from_user(&isReadEnable, (unsigned char *)arg, sizeof(isReadEnable));
+            vchar_hw_enable_read(vchar_drv.vchar_hw, isReadEnable);
+            printk(KERN_INFO "Data registers have been %s to read\n", (isReadEnable == ENABLE)?"enable":"disable");
+            break;
+        }
+        case VCHAR_SET_WR_DATA_REGS:
+        {
+            unsigned char isWriteEnable;
+            copy_from_user(&isWriteEnable, (unsigned char *)arg, sizeof(isWriteEnable));
+            vchar_hw_enable_write(vchar_drv.vchar_hw, isWriteEnable);
+            printk(KERN_INFO "Data registers have been %s to write\n", (isWriteEnable == ENABLE)?"enable":"disable");
+            break;
+        }
+        case VCHAR_GET_STS_REGS:
+        {
+            sts_regs_t status;
+            vchar_hw_get_status(vchar_drv.vchar_hw, &status);
+            copy_to_user((sts_regs_t *)arg, &status, sizeof(status));
+            printk(KERN_INFO "Got infomation from status register\n");
+            break;
+        }
+    }
+    return ret;
 }
 
 static ssize_t vchar_driver_write(struct file *filp, const char __user *user_buf, size_t len, loff_t *off)
